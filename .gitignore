@@ -1,0 +1,19 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+## Build outputs
+*.dll
+*.pdb
+*.exe
+
+## Local snapshots (often machine-specific, easy to regen)
+builddiff-*.json
+snap-*.json
+
+## OS
+Thumbs.db
+.DS_Store
