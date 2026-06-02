@@ -16,6 +16,42 @@ public sealed class Snapshot
     public EnvInfo Env { get; set; } = new();
     [JsonPropertyName("nuget")] public NuGetInfo NuGet { get; set; } = new();
     public Dictionary<string, ResolvedTool?> ResolvedTools { get; set; } = new();
+    public List<PythonEnv> Python { get; set; } = new();
+    public SwigInfo? Swig { get; set; }
+    public List<NativeDep> NativeDeps { get; set; } = new();
+}
+
+public sealed class PythonEnv
+{
+    public string? Path { get; set; }
+    public string? Version { get; set; }
+    public string? Prefix { get; set; }
+    public string? BasePrefix { get; set; }
+    public bool InVirtualEnv { get; set; }
+    public string? Architecture { get; set; }
+    public List<PyPackage> Packages { get; set; } = new();
+    public bool PackagesTruncated { get; set; }
+}
+
+public sealed class PyPackage
+{
+    public string Name { get; set; } = "";
+    public string Version { get; set; } = "";
+}
+
+public sealed class SwigInfo
+{
+    public string? Path { get; set; }
+    public string? Version { get; set; }
+    public bool OnPath { get; set; }
+}
+
+public sealed class NativeDep
+{
+    public string Name { get; set; } = "";
+    public string Path { get; set; } = "";
+    public string? FileVersion { get; set; }
+    public string? Architecture { get; set; }
 }
 
 public sealed class EnvInfo

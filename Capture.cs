@@ -26,6 +26,9 @@ public static class Capture
         s.Env = CollectEnv();
         s.NuGet = CollectNuGet();
         s.ResolvedTools = CollectResolvedTools();
+        s.Python = CollectPython();
+        s.Swig = CollectSwig();
+        s.NativeDeps = CollectNativeDeps();
         return s;
     }
 
@@ -397,5 +400,164 @@ public static class Capture
         }
 
         return info;
+    }
+
+    // ---- Tier 3 -------------------------------------------------------------
+
+    private const int MaxPyPackages = 200;
+
+    private static List<PythonEnv> CollectPython()
+    {
+        var result = new List<PythonEnv>();
+        // Distinct python interpreters reachable on PATH (where lists all matches).
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in new[] { "python.exe", "python3.exe" })
+        {
+            var listing = Proc.Run("where.exe", name, timeoutMs: 5_000);
+            if (listing is null || listing.ExitCode != 0) continue;
+            foreach (var raw in listing.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var path = raw.Trim();
+                if (path.Length == 0) continue;
+                // Skip the WindowsApps execution-alias stubs; they aren't real interpreters.
+                if (path.Contains("WindowsApps", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!seen.Add(path)) continue;
+                var env = ProbePython(path);
+                if (env is not null) result.Add(env);
+            }
+        }
+        return result;
+    }
+
+    private static PythonEnv? ProbePython(string path)
+    {
+        // One round-trip: print a JSON blob describing the interpreter.
+        const string script =
+            "import sys,json,platform;" +
+            "print(json.dumps({" +
+            "'version':platform.python_version()," +
+            "'prefix':sys.prefix," +
+            "'base_prefix':getattr(sys,'base_prefix',sys.prefix)," +
+            "'arch':platform.architecture()[0]}))";
+        var r = Proc.Run(path, $"-c \"{script}\"", timeoutMs: 10_000);
+        if (r is null || r.ExitCode != 0 || string.IsNullOrWhiteSpace(r.Stdout)) return null;
+
+        var env = new PythonEnv { Path = path };
+        try
+        {
+            using var doc = JsonDocument.Parse(r.Stdout.Trim());
+            var root = doc.RootElement;
+            env.Version = root.TryGetProperty("version", out var v) ? v.GetString() : null;
+            env.Prefix = root.TryGetProperty("prefix", out var p) ? p.GetString() : null;
+            env.BasePrefix = root.TryGetProperty("base_prefix", out var bp) ? bp.GetString() : null;
+            env.Architecture = root.TryGetProperty("arch", out var a) ? a.GetString() : null;
+            env.InVirtualEnv = !string.Equals(env.Prefix, env.BasePrefix, StringComparison.OrdinalIgnoreCase);
+        }
+        catch { }
+
+        env.Packages = ProbePyPackages(path, out var truncated);
+        env.PackagesTruncated = truncated;
+        return env;
+    }
+
+    private static List<PyPackage> ProbePyPackages(string path, out bool truncated)
+    {
+        truncated = false;
+        var pkgs = new List<PyPackage>();
+        var r = Proc.Run(path, "-m pip list --format json --disable-pip-version-check", timeoutMs: 20_000);
+        if (r is null || r.ExitCode != 0 || string.IsNullOrWhiteSpace(r.Stdout)) return pkgs;
+        try
+        {
+            using var doc = JsonDocument.Parse(r.Stdout.Trim());
+            foreach (var el in doc.RootElement.EnumerateArray())
+            {
+                if (pkgs.Count >= MaxPyPackages) { truncated = true; break; }
+                var name = el.TryGetProperty("name", out var n) ? n.GetString() : null;
+                var ver = el.TryGetProperty("version", out var v) ? v.GetString() : null;
+                if (!string.IsNullOrEmpty(name))
+                    pkgs.Add(new PyPackage { Name = name!, Version = ver ?? "" });
+            }
+        }
+        catch { }
+        return pkgs.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static SwigInfo? CollectSwig()
+    {
+        var path = Proc.Which("swig.exe") ?? Proc.Which("swig");
+        if (path is null) return new SwigInfo { Path = null, Version = null, OnPath = false };
+
+        string? version = null;
+        var r = Proc.Run(path, "-version", timeoutMs: 10_000);
+        if (r is not null)
+        {
+            var raw = (r.Stdout + r.Stderr);
+            var line = raw.Split('\n').Select(l => l.Trim())
+                .FirstOrDefault(l => l.StartsWith("SWIG Version", StringComparison.OrdinalIgnoreCase));
+            version = line?.Replace("SWIG Version", "", StringComparison.OrdinalIgnoreCase).Trim();
+        }
+        return new SwigInfo { Path = path, Version = version, OnPath = true };
+    }
+
+    // Native DLLs the build silently assumes are present, in well-known locations.
+    private static List<NativeDep> CollectNativeDeps()
+    {
+        var result = new List<NativeDep>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        var system32 = Environment.GetFolderPath(Environment.SpecialFolder.System);
+        // VC++ runtime + common native bits whose absence breaks load-time linking.
+        string[] knownDlls =
+        {
+            "msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll",
+            "concrt140.dll", "msvcp140_1.dll", "msvcp140_2.dll",
+            "ucrtbase.dll", "vcomp140.dll",
+        };
+        foreach (var dll in knownDlls)
+        {
+            var full = Path.Combine(system32, dll);
+            if (File.Exists(full) && seen.Add(full))
+                result.Add(DescribeNative(dll, full));
+        }
+        return result;
+    }
+
+    private static NativeDep DescribeNative(string name, string full)
+    {
+        string? fileVersion = null;
+        string? arch = null;
+        try
+        {
+            var fvi = System.Diagnostics.FileVersionInfo.GetVersionInfo(full);
+            fileVersion = fvi.FileVersion;
+        }
+        catch { }
+        try
+        {
+            arch = ReadPeArchitecture(full);
+        }
+        catch { }
+        return new NativeDep { Name = name, Path = full, FileVersion = fileVersion, Architecture = arch };
+    }
+
+    // Minimal PE header read for machine type — no dependencies.
+    private static string? ReadPeArchitecture(string path)
+    {
+        using var fs = File.OpenRead(path);
+        using var br = new BinaryReader(fs);
+        if (br.ReadUInt16() != 0x5A4D) return null;       // 'MZ'
+        fs.Position = 0x3C;
+        var peOffset = br.ReadInt32();
+        fs.Position = peOffset;
+        if (br.ReadUInt32() != 0x00004550) return null;   // 'PE\0\0'
+        var machine = br.ReadUInt16();
+        return machine switch
+        {
+            0x8664 => "x64",
+            0x014c => "x86",
+            0xAA64 => "arm64",
+            0x01c0 or 0x01c4 => "arm",
+            _ => $"0x{machine:X4}",
+        };
     }
 }

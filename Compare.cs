@@ -64,6 +64,11 @@ public static class Compare
         // PATH entries — MEDIUM, only flag entries unique to one side (order is noisy)
         DiffPathSets(diffs, a.Env.Path, b.Env.Path, a.Machine, b.Machine);
 
+        // Tier 3 — SWIG / Python / native deps
+        DiffSwig(diffs, a, b);
+        DiffPython(diffs, a, b);
+        DiffNativeDeps(diffs, a, b);
+
         // VS components — MEDIUM (less load-bearing than the targeted toolset/SDK diffs above)
         var aComps = a.VisualStudio.SelectMany(v => v.Components).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var bComps = b.VisualStudio.SelectMany(v => v.Components).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -234,5 +239,97 @@ public static class Compare
     {
         if (s is null) return "<unset>";
         return s.Length > max ? s.Substring(0, max - 1) + "…" : s;
+    }
+
+    private static void DiffSwig(List<Diff> diffs, Snapshot a, Snapshot b)
+    {
+        var aHas = a.Swig?.OnPath == true;
+        var bHas = b.Swig?.OnPath == true;
+        if (aHas && !bHas)
+            diffs.Add(new Diff(Severity.Critical, "SWIG",
+                $"swig present on {a.Machine} ({a.Swig!.Version ?? "?"}) but NOT FOUND on {b.Machine}",
+                "Native/Python bindings won't generate on the machine missing SWIG."));
+        else if (bHas && !aHas)
+            diffs.Add(new Diff(Severity.Critical, "SWIG",
+                $"swig present on {b.Machine} ({b.Swig!.Version ?? "?"}) but NOT FOUND on {a.Machine}",
+                "Native/Python bindings won't generate on the machine missing SWIG."));
+        else if (aHas && bHas &&
+                 !string.Equals(a.Swig!.Version, b.Swig!.Version, StringComparison.Ordinal))
+            diffs.Add(new Diff(Severity.High, "SWIG",
+                $"swig version differs: {a.Machine}={a.Swig.Version ?? "?"}, {b.Machine}={b.Swig.Version ?? "?"}"));
+    }
+
+    private static void DiffPython(List<Diff> diffs, Snapshot a, Snapshot b)
+    {
+        var aPrimary = a.Python.FirstOrDefault();
+        var bPrimary = b.Python.FirstOrDefault();
+
+        if (aPrimary is null && bPrimary is null) return;
+        if (aPrimary is null)
+        {
+            diffs.Add(new Diff(Severity.High, "Python",
+                $"Python resolves on {b.Machine} ({bPrimary!.Version}) but NOT FOUND on {a.Machine}"));
+            return;
+        }
+        if (bPrimary is null)
+        {
+            diffs.Add(new Diff(Severity.High, "Python",
+                $"Python resolves on {a.Machine} ({aPrimary.Version}) but NOT FOUND on {b.Machine}"));
+            return;
+        }
+
+        if (!string.Equals(aPrimary.Version, bPrimary.Version, StringComparison.Ordinal))
+            diffs.Add(new Diff(Severity.High, "Python",
+                $"Python version differs: {a.Machine}={aPrimary.Version}, {b.Machine}={bPrimary.Version}",
+                "SWIG/native bindings often pin to a specific Python version."));
+
+        if (!string.Equals(aPrimary.Architecture, bPrimary.Architecture, StringComparison.OrdinalIgnoreCase))
+            diffs.Add(new Diff(Severity.High, "Python",
+                $"Python architecture differs: {a.Machine}={aPrimary.Architecture}, {b.Machine}={bPrimary.Architecture}"));
+
+        if (aPrimary.InVirtualEnv != bPrimary.InVirtualEnv)
+            diffs.Add(new Diff(Severity.Medium, "Python",
+                $"virtualenv state differs: {a.Machine} {(aPrimary.InVirtualEnv ? "in venv" : "system")}, " +
+                $"{b.Machine} {(bPrimary.InVirtualEnv ? "in venv" : "system")}"));
+
+        // Package deltas — only flag packages present on one side, or version-mismatched.
+        var aPkgs = aPrimary.Packages.ToDictionary(p => p.Name, p => p.Version, StringComparer.OrdinalIgnoreCase);
+        var bPkgs = bPrimary.Packages.ToDictionary(p => p.Name, p => p.Version, StringComparer.OrdinalIgnoreCase);
+        if (aPkgs.Count > 0 && bPkgs.Count > 0)
+        {
+            foreach (var name in aPkgs.Keys.Except(bPkgs.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(x => x))
+                diffs.Add(new Diff(Severity.Medium, "Python package",
+                    $"{name} {aPkgs[name]} installed on {a.Machine}, missing on {b.Machine}"));
+            foreach (var name in bPkgs.Keys.Except(aPkgs.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(x => x))
+                diffs.Add(new Diff(Severity.Medium, "Python package",
+                    $"{name} {bPkgs[name]} installed on {b.Machine}, missing on {a.Machine}"));
+            foreach (var name in aPkgs.Keys.Intersect(bPkgs.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(x => x))
+                if (!string.Equals(aPkgs[name], bPkgs[name], StringComparison.Ordinal))
+                    diffs.Add(new Diff(Severity.Low, "Python package",
+                        $"{name} version differs: {a.Machine}={aPkgs[name]}, {b.Machine}={bPkgs[name]}"));
+        }
+    }
+
+    private static void DiffNativeDeps(List<Diff> diffs, Snapshot a, Snapshot b)
+    {
+        var aByName = a.NativeDeps.ToDictionary(d => d.Name, d => d, StringComparer.OrdinalIgnoreCase);
+        var bByName = b.NativeDeps.ToDictionary(d => d.Name, d => d, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var name in aByName.Keys.Except(bByName.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(x => x))
+            diffs.Add(new Diff(Severity.High, "Native dep",
+                $"{name} present on {a.Machine}, MISSING on {b.Machine}",
+                "Load-time linking will fail without this runtime DLL."));
+        foreach (var name in bByName.Keys.Except(aByName.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(x => x))
+            diffs.Add(new Diff(Severity.High, "Native dep",
+                $"{name} present on {b.Machine}, MISSING on {a.Machine}",
+                "Load-time linking will fail without this runtime DLL."));
+
+        foreach (var name in aByName.Keys.Intersect(bByName.Keys, StringComparer.OrdinalIgnoreCase).OrderBy(x => x))
+        {
+            var av = aByName[name]; var bv = bByName[name];
+            if (!string.Equals(av.FileVersion, bv.FileVersion, StringComparison.Ordinal))
+                diffs.Add(new Diff(Severity.Low, "Native dep",
+                    $"{name} version differs: {a.Machine}={av.FileVersion ?? "?"}, {b.Machine}={bv.FileVersion ?? "?"}"));
+        }
     }
 }
