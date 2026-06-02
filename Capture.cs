@@ -23,7 +23,198 @@ public static class Capture
         s.MsBuild = CollectMsBuild(s.VisualStudio);
         s.Toolsets = DeriveToolsets(s.VisualStudio);
         s.WindowsSdks = DeriveWindowsSdks(s.VisualStudio);
+        s.Env = CollectEnv();
+        s.NuGet = CollectNuGet();
+        s.ResolvedTools = CollectResolvedTools();
         return s;
+    }
+
+    private static readonly HashSet<string> BuildRelevantEnvKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PATH", "INCLUDE", "LIB", "LIBPATH",
+        "VCINSTALLDIR", "VCToolsInstallDir", "VCToolsVersion", "VCToolsRedistDir",
+        "VSINSTALLDIR", "VS170COMNTOOLS", "VS180COMNTOOLS", "DevEnvDir",
+        "WindowsSdkDir", "WindowsSDKVersion", "WindowsSdkBinPath", "WindowsLibPath",
+        "UCRTVersion", "UniversalCRTSdkDir",
+        "DOTNET_ROOT", "DOTNET_CLI_TELEMETRY_OPTOUT", "DOTNET_MULTILEVEL_LOOKUP",
+        "MSBuildSDKsPath", "MSBuildExtensionsPath",
+        "NUGET_PACKAGES", "NUGET_HTTP_CACHE_PATH", "NUGET_FALLBACK_PACKAGES",
+        "PYTHONPATH", "PYTHONHOME",
+        "PROCESSOR_ARCHITECTURE",
+    };
+
+    private static readonly string[] SecretMarkers =
+    {
+        "TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "KEY",
+        "PAT", "CREDENTIAL", "AUTH", "BEARER",
+    };
+
+    private static EnvInfo CollectEnv()
+    {
+        var env = new EnvInfo();
+
+        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        env.Path = path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(p => p.Trim().TrimEnd('\\', '/'))
+            .Where(p => p.Length > 0)
+            .ToList();
+
+        foreach (System.Collections.DictionaryEntry e in Environment.GetEnvironmentVariables())
+        {
+            var key = e.Key?.ToString();
+            var val = e.Value?.ToString();
+            if (string.IsNullOrEmpty(key)) continue;
+            if (key.Equals("PATH", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var safeVal = LooksSecret(key) ? "<redacted>" : val;
+            if (IsBuildRelevant(key))
+                env.BuildRelevant[key] = safeVal;
+            else
+                env.Other[key] = safeVal;
+        }
+        return env;
+    }
+
+    private static bool IsBuildRelevant(string key)
+    {
+        if (BuildRelevantEnvKeys.Contains(key)) return true;
+        if (key.EndsWith("_HOME", StringComparison.OrdinalIgnoreCase)) return true;
+        if (key.EndsWith("_ROOT", StringComparison.OrdinalIgnoreCase)) return true;
+        if (key.StartsWith("VCPKG", StringComparison.OrdinalIgnoreCase)) return true;
+        if (key.StartsWith("CMAKE_", StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private static bool LooksSecret(string key)
+    {
+        var upper = key.ToUpperInvariant();
+        return SecretMarkers.Any(m => upper.Contains(m));
+    }
+
+    private static NuGetInfo CollectNuGet()
+    {
+        var info = new NuGetInfo();
+        var dotnet = Proc.Which("dotnet.exe") ?? Proc.Which("dotnet");
+        if (dotnet is null) return info;
+
+        var listed = Proc.Run(dotnet, "nuget list source --format short", timeoutMs: 15_000);
+        if (listed is not null && listed.ExitCode == 0)
+        {
+            foreach (var line in listed.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length < 3) continue;
+                var enabled = trimmed[0] != 'D';
+                var rest = trimmed.Substring(1).Trim();
+                info.Sources.Add(new NuGetSource { Name = "", Url = rest, Enabled = enabled });
+            }
+        }
+
+        var detailed = Proc.Run(dotnet, "nuget list source", timeoutMs: 15_000);
+        if (detailed is not null && detailed.ExitCode == 0)
+        {
+            string? curName = null;
+            int idx = 0;
+            foreach (var rawLine in detailed.Stdout.Split('\n'))
+            {
+                var line = rawLine.TrimEnd();
+                var match = System.Text.RegularExpressions.Regex.Match(line,
+                    @"^\s*(\d+)\.\s+(?<name>.+?)\s+\[(?<state>Enabled|Disabled)\]");
+                if (match.Success)
+                {
+                    curName = match.Groups["name"].Value.Trim();
+                    continue;
+                }
+                if (curName is not null && line.Trim().Length > 0)
+                {
+                    var url = line.Trim();
+                    if (idx < info.Sources.Count) info.Sources[idx].Name = curName;
+                    else info.Sources.Add(new NuGetSource { Name = curName, Url = url });
+                    idx++;
+                    curName = null;
+                }
+            }
+        }
+
+        var locals = Proc.Run(dotnet, "nuget locals global-packages --list", timeoutMs: 10_000);
+        if (locals is not null && locals.ExitCode == 0)
+        {
+            var line = locals.Stdout.Split('\n').FirstOrDefault(l => l.Contains("global-packages", StringComparison.OrdinalIgnoreCase));
+            if (line is not null)
+            {
+                var colon = line.IndexOf(':');
+                if (colon >= 0) info.GlobalPackages = line.Substring(colon + 1).Trim();
+            }
+        }
+
+        var candidates = new[]
+        {
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "NuGet", "NuGet.Config"),
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "NuGet", "NuGet.Config"),
+            Path.Combine(Environment.CurrentDirectory, "NuGet.config"),
+            Path.Combine(Environment.CurrentDirectory, "nuget.config"),
+        };
+        foreach (var c in candidates)
+        {
+            if (File.Exists(c)) info.Configs.Add(c);
+        }
+        info.Configs = info.Configs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return info;
+    }
+
+    private static readonly (string Name, string VersionArgs)[] InterestingTools =
+    {
+        ("cl.exe",      ""),
+        ("link.exe",    ""),
+        ("cmake.exe",   "--version"),
+        ("ninja.exe",   "--version"),
+        ("git.exe",     "--version"),
+        ("python.exe",  "--version"),
+        ("python3.exe", "--version"),
+        ("node.exe",    "--version"),
+        ("npm.cmd",     "--version"),
+        ("dotnet.exe",  "--version"),
+        ("nuget.exe",   ""),
+        ("swig.exe",    "-version"),
+    };
+
+    private static Dictionary<string, ResolvedTool?> CollectResolvedTools()
+    {
+        var result = new Dictionary<string, ResolvedTool?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, args) in InterestingTools)
+        {
+            var path = Proc.Which(name);
+            if (path is null)
+            {
+                result[name] = null;
+                continue;
+            }
+            string? version = null;
+            if (args.Length > 0)
+            {
+                var r = Proc.Run(path, args, timeoutMs: 10_000);
+                if (r is not null)
+                {
+                    var raw = (r.Stdout + r.Stderr).Trim();
+                    var firstLine = raw.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0);
+                    version = firstLine;
+                }
+            }
+            else
+            {
+                var r = Proc.Run(path, "", timeoutMs: 5_000);
+                if (r is not null)
+                {
+                    var raw = (r.Stdout + r.Stderr).Trim();
+                    var firstLine = raw.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0);
+                    version = firstLine;
+                }
+            }
+            result[name] = new ResolvedTool { Path = path, Version = version };
+        }
+        return result;
     }
 
     private static MsBuildInfo? CollectMsBuild(List<VisualStudioInstall> vs)

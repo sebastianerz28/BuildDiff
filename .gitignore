@@ -17,3 +17,6 @@ snap-*.json
 ## OS
 Thumbs.db
 .DS_Store
+
+## Local notes
+*.local.md

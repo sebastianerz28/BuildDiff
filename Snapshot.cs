@@ -13,6 +13,36 @@ public sealed class Snapshot
     public List<string> Toolsets { get; set; } = new();
     public List<string> WindowsSdks { get; set; } = new();
     public DotnetInfo Dotnet { get; set; } = new();
+    public EnvInfo Env { get; set; } = new();
+    [JsonPropertyName("nuget")] public NuGetInfo NuGet { get; set; } = new();
+    public Dictionary<string, ResolvedTool?> ResolvedTools { get; set; } = new();
+}
+
+public sealed class EnvInfo
+{
+    public List<string> Path { get; set; } = new();
+    public Dictionary<string, string?> BuildRelevant { get; set; } = new();
+    public Dictionary<string, string?> Other { get; set; } = new();
+}
+
+public sealed class NuGetInfo
+{
+    public List<NuGetSource> Sources { get; set; } = new();
+    public string? GlobalPackages { get; set; }
+    public List<string> Configs { get; set; } = new();
+}
+
+public sealed class NuGetSource
+{
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+}
+
+public sealed class ResolvedTool
+{
+    public string? Path { get; set; }
+    public string? Version { get; set; }
 }
 
 public sealed class OsInfo
