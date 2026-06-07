@@ -40,11 +40,12 @@ public sealed class BazelPayload
 /// resolution mode (bzlmod vs WORKSPACE), and the .bazelrc layering — all sources
 /// of "builds here but not there" for Bazel repos. Cross-platform.
 ///
-/// SAFETY: only ever runs <c>bazel --version</c> and <c>bazelisk version</c>; never
-/// a bare <c>bazel version</c>/<c>info</c>/build/query (those start a server and may
-/// download a toolchain). Never reads .bazelrc/MODULE.bazel/WORKSPACE contents beyond
-/// presence and a blank/comment-stripped line count — they carry remote-cache and
-/// credential tokens.
+/// SAFETY: only ever runs <c>bazel --version</c> (a startup flag the real Bazel answers
+/// without launching a server) and <c>bazelisk bazeliskVersion</c> (prints bazelisk's own
+/// version with no Bazel download/server). NEVER a bare <c>bazel version</c>/<c>info</c>/
+/// build/query, and NEVER a bare <c>bazelisk version</c> — those resolve+download the
+/// pinned Bazel and start a server inside the repo. Reads .bazelrc/WORKSPACE by presence
+/// + line count only; MODULE.bazel is parsed for its public module name/version (not secret).
 /// </summary>
 public sealed class BazelProvider : IEnvironmentProvider
 {
@@ -85,7 +86,9 @@ public sealed class BazelProvider : IEnvironmentProvider
         if (bazelisk is not null && !PathEquals(bazelisk, p.BazelPath))
         {
             p.BazeliskPresent = true;
-            var r = Proc.Run(bazelisk, "version", timeoutMs: 12_000, workingDir: ctx.ProjectRoot);
+            // `bazeliskVersion` prints ONLY bazelisk's own version — unlike the bare
+            // `version` subcommand, it never resolves/downloads Bazel or starts a server.
+            var r = Proc.Run(bazelisk, "bazeliskVersion", timeoutMs: 12_000);
             if (r is not null)
             {
                 var m = Regex.Match(r.Combined, @"(?im)^Bazelisk version:\s*v?([0-9][0-9.]+)");
