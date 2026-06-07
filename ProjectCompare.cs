@@ -1,20 +1,37 @@
+using System.Text.Json;
+using System.Text.RegularExpressions;
+
 namespace BuildDiff;
 
 /// <summary>
-/// Diffs the <c>--project</c> declared requirements between two snapshots.
-/// When both snapshots were captured against the same repo with <c>--project</c>,
-/// any divergence in declared versions usually means the two machines are on
-/// different checkouts of the project itself.
+/// Two kinds of <c>--project</c> drift:
+///  1. machine-vs-declared — a machine's detected toolchain doesn't satisfy what the
+///     repo pins (e.g. .nvmrc says node 20 but the box runs node 25). This is the
+///     high-value check.
+///  2. declared-between-snapshots — the two machines disagree on what the project
+///     declares, which usually means different checkouts.
 /// </summary>
 public static class ProjectCompare
 {
+    // Requirement key -> the provider whose payload holds the machine's active version.
+    private static readonly (string Key, string ProviderId)[] PinnedTools =
+    {
+        ("node", "javascript-node"),
+        ("python", "python"),
+        ("ruby", "ruby"),
+        ("java", "jvm"),
+        ("go", "go"),
+    };
+
     public static IEnumerable<Diff> Run(Snapshot a, Snapshot b, CompareContext ctx)
     {
+        foreach (var d in MachineVsDeclared(a, ctx.A)) yield return d;
+        foreach (var d in MachineVsDeclared(b, ctx.B)) yield return d;
+
         if (a.Project is null || b.Project is null) yield break;
 
         var aDecl = Flatten(a.Project);
         var bDecl = Flatten(b.Project);
-
         foreach (var key in aDecl.Keys.Union(bDecl.Keys, StringComparer.OrdinalIgnoreCase)
                      .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
         {
@@ -23,10 +40,71 @@ public static class ProjectCompare
             if (!string.Equals(av, bv, StringComparison.OrdinalIgnoreCase))
                 yield return new Diff(Severity.Medium, "Project requirement",
                     $"declared {key} differs: {ctx.A}={av ?? "<none>"}, {ctx.B}={bv ?? "<none>"}",
-                    "The two machines appear to be on different checkouts of this project.",
-                    "project");
+                    "The two machines appear to be on different checkouts of this project.", "project");
         }
     }
+
+    private static IEnumerable<Diff> MachineVsDeclared(Snapshot s, string machine)
+    {
+        if (s.Project is null) yield break;
+
+        foreach (var m in s.Project.Manifests)
+            foreach (var (key, declared) in m.Declares)
+            {
+                if (declared is null) continue;
+                var tool = PinnedTools.FirstOrDefault(t => t.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
+                if (tool.ProviderId is null) continue;          // not a tool we can resolve
+                if (!IsConcreteVersion(declared)) continue;     // skip ranges / aliases (>=22, lts/iron)
+
+                var captured = CapturedVersion(s, tool.ProviderId, key);
+                if (captured is null)
+                    yield return new Diff(Severity.High, "Project requirement",
+                        $"{machine}: {key} is declared ({declared} in {m.File}) but no {key} was detected", null, "project");
+                else if (!SatisfiesPinPrecision(declared, captured))
+                    yield return new Diff(Severity.Medium, "Project requirement",
+                        $"{machine}: {key} {captured} does not satisfy declared {declared} ({m.File})",
+                        $"Switch {key} to {declared} (e.g. via your version manager).", "project");
+            }
+    }
+
+    private static string? CapturedVersion(Snapshot s, string providerId, string key)
+    {
+        if (!s.Providers.TryGetValue(providerId, out var el)) return null;
+        try
+        {
+            if (key.Equals("python", StringComparison.OrdinalIgnoreCase))
+            {
+                if (el.TryGetProperty("envs", out var envs) && envs.ValueKind == JsonValueKind.Array)
+                    foreach (var e in envs.EnumerateArray())
+                        if (e.TryGetProperty("version", out var v)) return v.GetString();
+                return null;
+            }
+            var field = key.ToLowerInvariant() switch
+            {
+                "node" => "node_version",
+                "java" => "java_version",
+                _ => "version",
+            };
+            return el.TryGetProperty(field, out var f) ? f.GetString() : null;
+        }
+        catch { return null; }
+    }
+
+    // Compare only as precisely as the pin specifies: pin "20" checks the major,
+    // "3.11" checks major.minor, "20.11.0" checks all three.
+    private static bool SatisfiesPinPrecision(string pin, string captured)
+    {
+        var pinParts = pin.Split('.');
+        var capParts = captured.Split('.', '-', '+');
+        for (int i = 0; i < pinParts.Length; i++)
+        {
+            if (i >= capParts.Length) return false;
+            if (!string.Equals(pinParts[i], capParts[i], StringComparison.Ordinal)) return false;
+        }
+        return true;
+    }
+
+    private static bool IsConcreteVersion(string v) => Regex.IsMatch(v, @"^\d+(\.\d+)*$");
 
     private static Dictionary<string, string?> Flatten(ProjectInfo p)
     {
