@@ -1,0 +1,107 @@
+name: release-npm
+
+# Publishes the npm distribution on a version tag: per-platform Native-AOT binaries
+# as scoped packages (@builddiff/cli-<os>-<arch>) plus the `builddiff` wrapper that
+# selects the right one. Requires repository secret NPM_TOKEN.
+#
+#   git tag v0.3.0 && git push origin v0.3.0
+#
+# (Or run manually via "Run workflow" with an explicit version.)
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (no leading v)'
+        required: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,    rid: linux-x64,   nodeos: linux,  nodecpu: x64 }
+          - { runner: ubuntu-24.04-arm, rid: linux-arm64, nodeos: linux,  nodecpu: arm64 }
+          - { runner: macos-13,         rid: osx-x64,     nodeos: darwin, nodecpu: x64 }
+          - { runner: macos-latest,     rid: osx-arm64,   nodeos: darwin, nodecpu: arm64 }
+          - { runner: windows-latest,   rid: win-x64,     nodeos: win32,  nodecpu: x64 }
+          - { runner: windows-11-arm,   rid: win-arm64,   nodeos: win32,  nodecpu: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install AOT prerequisites (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+
+      - name: Publish Native AOT
+        run: dotnet publish BuildDiff.csproj -c Release -r ${{ matrix.rid }} -p:PublishAot=true -p:PackAsTool=false -o out
+
+      - name: Assemble platform package
+        shell: bash
+        run: |
+          if [ "${{ matrix.nodeos }}" = "win32" ]; then bin=out/builddiff.exe; else bin=out/builddiff; fi
+          node npm/scripts/platform-package.js "${{ needs.version.outputs.version }}" "${{ matrix.nodeos }}" "${{ matrix.nodecpu }}" "$bin" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.nodeos }}-${{ matrix.nodecpu }}
+          path: dist/${{ matrix.nodeos }}-${{ matrix.nodecpu }}
+
+  publish:
+    needs: [ version, build ]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: pkg-*
+
+      - name: Pin wrapper + optional-dep versions
+        run: node npm/scripts/set-wrapper-version.js "${{ needs.version.outputs.version }}"
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for d in dist/pkg-*/; do
+            echo "publishing $d"
+            (cd "$d" && npm publish --access public)
+          done
+
+      - name: Publish wrapper
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cp README.md npm/README.md
+          cd npm && npm publish --access public

@@ -28,3 +28,10 @@ Thumbs.db
 ## Local scratch
 .claude/
 parse-*.js
+
+## npm build outputs
+node_modules/
+dist/
+out/
+aot-test/
+npm/README.md

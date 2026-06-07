@@ -1,0 +1,45 @@
+{
+  "name": "builddiff",
+  "version": "0.3.0",
+  "description": "Why does it build here but not there? Captures build-relevant environment state and diffs two machines, ranked by what is most likely to break a build. Cross-platform, multi-environment (.NET/MSVC, Node, Swift, CMake/C++, Go, Rust, JVM, Ruby, PHP, Python, containers, …).",
+  "keywords": [
+    "build",
+    "diagnostics",
+    "cli",
+    "environment",
+    "ci",
+    "node",
+    "swift",
+    "cmake",
+    "go",
+    "rust",
+    "java",
+    "cross-platform",
+    "works-on-my-machine"
+  ],
+  "homepage": "https://github.com/sebastianerz28/BuildDiff",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sebastianerz28/BuildDiff.git"
+  },
+  "license": "MIT",
+  "author": "Sebastian Ramirez",
+  "bin": {
+    "builddiff": "bin/builddiff.js"
+  },
+  "files": [
+    "bin/builddiff.js",
+    "README.md"
+  ],
+  "optionalDependencies": {
+    "@builddiff/cli-linux-x64": "0.3.0",
+    "@builddiff/cli-linux-arm64": "0.3.0",
+    "@builddiff/cli-darwin-x64": "0.3.0",
+    "@builddiff/cli-darwin-arm64": "0.3.0",
+    "@builddiff/cli-win32-x64": "0.3.0",
+    "@builddiff/cli-win32-arm64": "0.3.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
