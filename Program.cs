@@ -15,6 +15,7 @@ internal static class Cli
             "capture" => DoCapture(args.Skip(1).ToArray()),
             "compare" => DoCompare(args.Skip(1).ToArray()),
             "providers" or "list" => DoProviders(),
+            "fingerprint" => DoFingerprint(args.Skip(1).ToArray()),
             "-h" or "--help" or "help" => Help(),
             _ => Help(unknown: args[0]),
         };
@@ -87,6 +88,22 @@ internal static class Cli
             AnsiConsole.MarkupLine($"  {dot} [bold]{Markup.Escape(p.Id)}[/]  [grey]— {Markup.Escape(p.DisplayName)}[/]");
         }
         AnsiConsole.MarkupLine("\n  [grey]● active on this OS    ○ inactive here[/]");
+        return 0;
+    }
+
+    private static int DoFingerprint(string[] args)
+    {
+        if (args.Length < 1)
+        {
+            AnsiConsole.MarkupLine("[red]usage: builddiff fingerprint <snapshot.json>[/]");
+            return 1;
+        }
+        var snap = LoadSnapshot(args[0]);
+        if (snap is null) return 1;
+        var fp = snap.Fingerprint ?? Fingerprinter.Compute(snap);
+        // Plain, scriptable output: the fingerprint value, then identity context on stderr-ish grey.
+        Console.WriteLine(fp.Value);
+        AnsiConsole.MarkupLine($"[grey]machine_id={Markup.Escape(snap.MachineId ?? "?")}  tool={Markup.Escape(snap.ToolVersion ?? "?")}  inputs_version={fp.InputsVersion}[/]");
         return 0;
     }
 
@@ -168,5 +185,6 @@ internal static class Cli
         AnsiConsole.MarkupLine("  [bold]capture[/]  [grey][[-o file.json]] [[--project DIR]] [[--only id,id]][/]   capture this machine's build-relevant state");
         AnsiConsole.MarkupLine("  [bold]compare[/]  A.json B.json [grey][[--verbose]][/]                  diff two snapshots, ranked by likelihood of breaking the build");
         AnsiConsole.MarkupLine("  [bold]providers[/]                                          list every ecosystem BuildDiff can detect");
+        AnsiConsole.MarkupLine("  [bold]fingerprint[/] snapshot.json                          print a snapshot's content fingerprint (for drift detection)");
     }
 }

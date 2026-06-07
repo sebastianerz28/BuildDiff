@@ -52,6 +52,17 @@ public static class Capture
             try { snap.Project = ProjectScan.Scan(opts.ProjectRoot); } catch { }
         }
 
+        // ---- snapshot envelope (inert metadata; nothing is transmitted) ----
+        snap.EnvelopeVersion = 1;
+        snap.ToolVersion = BuildInfo.ToolVersion;
+        snap.MachineId = MachineIdentity.Get();
+        snap.CaptureMeta = new CaptureMeta
+        {
+            ProjectRootPresent = opts.ProjectRoot is not null,
+            Only = opts.Only?.OrderBy(x => x, StringComparer.Ordinal).ToList(),
+        };
+        snap.Fingerprint = Fingerprinter.Compute(snap);
+
         return snap;
     }
 }

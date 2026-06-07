@@ -12,6 +12,15 @@ public static class SnapshotUpgrader
 {
     public static Snapshot Load(string json)
     {
+        var snap = LoadCore(json);
+        // Older snapshots predate the sync envelope — synthesize a fingerprint with the
+        // current recipe so they remain comparable and dedup-able later.
+        snap.Fingerprint ??= Fingerprinter.Compute(snap);
+        return snap;
+    }
+
+    private static Snapshot LoadCore(string json)
+    {
         using var doc = JsonDocument.Parse(json);
         var root = doc.RootElement;
 
@@ -29,6 +38,7 @@ public static class SnapshotUpgrader
             Machine = Str(root, "machine") ?? "",
             CapturedAt = Str(root, "captured_at") ?? "",
             SchemaVersion = 2,
+            EnvelopeVersion = 0, // pre-sync origin
             Os = new OsInfo
             {
                 Platform = "windows", // v1 only ever ran on Windows
