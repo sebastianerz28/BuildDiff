@@ -45,8 +45,22 @@ public sealed class DotnetProvider : IEnvironmentProvider
 
         foreach (var d in DiffHelp.Scalar(Id, ".NET CLI", ".NET CLI", pa.CliVersion, pb.CliVersion, ctx,
             Severity.Critical, Severity.Medium)) yield return d;
-        foreach (var d in DiffHelp.Sets(Id, ".NET SDK", pa.Sdks, pb.Sdks, ctx, Severity.Critical)) yield return d;
-        foreach (var d in DiffHelp.Sets(Id, ".NET runtime", pa.Runtimes, pb.Runtimes, ctx, Severity.High)) yield return d;
+
+        // Having NO SDK at all (e.g. a runtime-only box) is what breaks a build —
+        // an *extra* SDK version on one side is not. Don't let it hijack the headline.
+        if (pa.Sdks.Count > 0 && pb.Sdks.Count == 0)
+            yield return new Diff(Severity.Critical, ".NET SDK", $"no .NET SDK on {ctx.B} ({pa.Sdks.Count} installed on {ctx.A})", "Install the .NET SDK (a runtime-only install can't build).", Id);
+        else if (pb.Sdks.Count > 0 && pa.Sdks.Count == 0)
+            yield return new Diff(Severity.Critical, ".NET SDK", $"no .NET SDK on {ctx.A} ({pb.Sdks.Count} installed on {ctx.B})", "Install the .NET SDK (a runtime-only install can't build).", Id);
+        else
+            foreach (var d in DiffHelp.Sets(Id, ".NET SDK", pa.Sdks, pb.Sdks, ctx, Severity.Medium)) yield return d;
+
+        if (pa.Runtimes.Count > 0 && pb.Runtimes.Count == 0)
+            yield return new Diff(Severity.High, ".NET runtime", $"no .NET runtime on {ctx.B}", null, Id);
+        else if (pb.Runtimes.Count > 0 && pa.Runtimes.Count == 0)
+            yield return new Diff(Severity.High, ".NET runtime", $"no .NET runtime on {ctx.A}", null, Id);
+        else
+            foreach (var d in DiffHelp.Sets(Id, ".NET runtime", pa.Runtimes, pb.Runtimes, ctx, Severity.Medium)) yield return d;
     }
 
     private static List<string> Lines(string s) => s

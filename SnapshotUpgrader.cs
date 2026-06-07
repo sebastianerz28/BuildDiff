@@ -37,14 +37,27 @@ public static class SnapshotUpgrader
             },
         };
 
-        // visual-studio: assemble installs + toolsets + windows_sdks + msbuild.
-        var vs = new JsonObject();
-        if (TryGet(root, "visual_studio", out var vsEl)) vs["installs"] = Clone(vsEl);
-        if (TryGet(root, "toolsets", out var tsEl)) vs["toolsets"] = Clone(tsEl);
-        if (TryGet(root, "windows_sdks", out var sdkEl)) vs["windows_sdks"] = Clone(sdkEl);
-        if (TryGet(root, "ms_build", out var mbEl)) vs["ms_build"] = Clone(mbEl);
-        else if (TryGet(root, "msbuild", out var mb2)) vs["ms_build"] = Clone(mb2);
-        if (vs.Count > 0) Put(snap, "visual-studio", vs);
+        // visual-studio: rebuild the v1 sections into the v2 VsPayload. v1 wrote install
+        // metadata in camelCase, so read case-insensitively into the POCO; it then
+        // re-serializes through Json.Options (snake_case) like every other payload.
+        VsPayload? vs = null;
+        if (TryGet(root, "visual_studio", out var vsEl))
+        {
+            vs = new VsPayload();
+            try { vs.Installs = vsEl.Deserialize<List<VsInstall>>(CaseInsensitive) ?? new(); } catch { }
+        }
+        if (TryGet(root, "toolsets", out var tsEl)) { vs ??= new(); vs.Toolsets = Strs(tsEl); }
+        if (TryGet(root, "windows_sdks", out var sdkEl)) { vs ??= new(); vs.WindowsSdks = Strs(sdkEl); }
+        if (TryGet(root, "ms_build", out var mbEl) || TryGet(root, "msbuild", out mbEl))
+        {
+            vs ??= new();
+            try { vs.MsBuild = mbEl.Deserialize<MsBuildInfo>(CaseInsensitive); } catch { }
+        }
+        if (vs is not null) snap.Providers["visual-studio"] = Json.ToElement(vs);
+
+        // Note: v1 'resolved_tools' is intentionally dropped — those tools (cl/cmake/
+        // ninja/git/node/npm/dotnet/nuget/swig) are now covered by dedicated providers
+        // (cmake-cpp, javascript-node, dotnet, swig) and generic-toolchain.
 
         Copy(root, "dotnet", snap, "dotnet");
         Copy(root, "nuget", snap, "nuget");
@@ -68,6 +81,18 @@ public static class SnapshotUpgrader
     {
         if (node is null) return;
         snap.Providers[providerId] = JsonSerializer.SerializeToElement(node, Json.Options);
+    }
+
+    private static readonly JsonSerializerOptions CaseInsensitive = new() { PropertyNameCaseInsensitive = true };
+
+    private static List<string> Strs(JsonElement el)
+    {
+        var list = new List<string>();
+        if (el.ValueKind == JsonValueKind.Array)
+            foreach (var x in el.EnumerateArray())
+                if (x.ValueKind == JsonValueKind.String && x.GetString() is { } s)
+                    list.Add(s);
+        return list;
     }
 
     private static bool TryGet(JsonElement obj, string name, out JsonElement el)

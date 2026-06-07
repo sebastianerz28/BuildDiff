@@ -37,7 +37,7 @@ public sealed class PythonProvider : IEnvironmentProvider
     public object? Capture(CaptureContext ctx)
     {
         var payload = new PythonPayload();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(Os.PathComparer);
 
         foreach (var name in new[] { "python3", "python" })
             foreach (var path in Proc.WhichAll(name))

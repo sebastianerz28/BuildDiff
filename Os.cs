@@ -21,4 +21,11 @@ public static class Os
 
     public static string Arch => RuntimeInformation.OSArchitecture.ToString();
     public static string Description => RuntimeInformation.OSDescription;
+
+    /// <summary>
+    /// Comparer for filesystem paths: case-sensitive on Linux, case-insensitive on
+    /// Windows/macOS (their default filesystems). Use this for de-duplicating paths.
+    /// </summary>
+    public static StringComparer PathComparer { get; } =
+        Current == OsPlatform.Linux ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase;
 }

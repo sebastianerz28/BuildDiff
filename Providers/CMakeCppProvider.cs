@@ -42,7 +42,7 @@ public sealed class CMakeCppProvider : IEnvironmentProvider
         {
             var cl = Tool("cl.exe", "");
             var v = cl is null ? null : Regex.Match(cl.Combined, @"Version ([0-9][0-9.]*)");
-            if (v is { Success: true }) p.Compilers["cl"] = v.Value;
+            if (v is { Success: true }) p.Compilers["cl"] = v.Groups[1].Value;
         }
 
         p.VcpkgRoot = Environment.GetEnvironmentVariable("VCPKG_ROOT");

@@ -35,12 +35,18 @@ public sealed class PhpProvider : IEnvironmentProvider
         if (mods is not null && mods.ExitCode == 0)
             p.Extensions = mods.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries)
                 .Select(l => l.Trim())
-                .Where(l => l.Length > 0 && !l.StartsWith('[') && !l.Contains(' '))
+                .Where(l => l.Length > 0 && !l.StartsWith('[')) // drop only the [PHP Modules]/[Zend Modules] headers
                 .OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
 
         var composer = Proc.Which("composer") ?? Proc.Which("composer.bat") ?? Proc.Which("composer.phar");
         if (composer is not null)
-            p.ComposerVersion = Extract(Proc.Run(composer, "--version", timeoutMs: 15_000)?.Combined, @"Composer version ([0-9][0-9.]*)");
+        {
+            // A raw .phar isn't directly runnable on Windows — invoke it through php.
+            var cr = composer.EndsWith(".phar", StringComparison.OrdinalIgnoreCase) && php is not null
+                ? Proc.Run(php, $"\"{composer}\" --version", timeoutMs: 15_000)
+                : Proc.Run(composer, "--version", timeoutMs: 15_000);
+            p.ComposerVersion = Extract(cr?.Combined, @"Composer version ([0-9][0-9.]*)");
+        }
 
         return p;
     }
@@ -53,8 +59,8 @@ public sealed class PhpProvider : IEnvironmentProvider
         foreach (var d in DiffHelp.Scalar(Id, "PHP", "php", pa.Version, pb.Version, ctx, Severity.Critical, Severity.High,
             "composer.json platform requirements pin a PHP version; a mismatch fails install/build.")) yield return d;
         foreach (var d in DiffHelp.Scalar(Id, "PHP", "composer", pa.ComposerVersion, pb.ComposerVersion, ctx, Severity.High, Severity.Medium)) yield return d;
-        foreach (var d in DiffHelp.Sets(Id, "PHP extension", pa.Extensions, pb.Extensions, ctx, Severity.High,
-            e => $"A required PHP extension ({e}) is loaded on one machine only.")) yield return d;
+        foreach (var d in DiffHelp.Sets(Id, "PHP extension", pa.Extensions, pb.Extensions, ctx, Severity.Medium,
+            e => $"Extension '{e}' is loaded on one machine only — may be required by composer.json platform constraints.")) yield return d;
     }
 
     private static string? Extract(string? text, string pattern)

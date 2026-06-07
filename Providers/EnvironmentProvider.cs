@@ -40,6 +40,19 @@ public sealed class EnvironmentProvider : IEnvironmentProvider
     {
         "TOKEN", "SECRET", "PASSWORD", "PASSWD", "APIKEY", "API_KEY", "KEY",
         "PAT", "CREDENTIAL", "AUTH", "BEARER",
+        "CONNECTIONSTRING", "CONN_STR", "DSN", "WEBHOOK", "SIGNING", "CERT",
+        "KEYSTORE", "KEYCHAIN", "PRIVATE", "ACCESS", "SAS", "COOKIE", "SESSION",
+        "OTP", "PASSPHRASE",
+    };
+
+    // Vars whose VALUE meaningfully changes how a build compiles/links — worth a HIGH
+    // diff. Everything else build-relevant is mostly an install path (expected to differ).
+    private static readonly HashSet<string> HighImpactKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "INCLUDE", "LIB", "LIBPATH", "CC", "CXX", "LD", "LDFLAGS", "CFLAGS", "CXXFLAGS",
+        "CPPFLAGS", "PKG_CONFIG_PATH", "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH",
+        "DYLD_FRAMEWORK_PATH", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS",
+        "VCToolsVersion", "WindowsSDKVersion", "UCRTVersion",
     };
 
     public object? Capture(CaptureContext ctx)
@@ -48,7 +61,7 @@ public sealed class EnvironmentProvider : IEnvironmentProvider
 
         var path = Environment.GetEnvironmentVariable("PATH") ?? "";
         env.Path = path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(p => p.Trim().TrimEnd('\\', '/'))
+            .Select(p => { var t = p.Trim(); var n = t.TrimEnd('\\', '/'); return n.Length > 0 ? n : t; })
             .Where(p => p.Length > 0)
             .ToList();
 
@@ -58,9 +71,13 @@ public sealed class EnvironmentProvider : IEnvironmentProvider
             if (string.IsNullOrEmpty(key)) continue;
             if (key.Equals("PATH", StringComparison.OrdinalIgnoreCase)) continue;
             var val = e.Value?.ToString();
-            var safeVal = LooksSecret(key) ? "<redacted>" : val;
-            if (IsBuildRelevant(key)) env.BuildRelevant[key] = safeVal;
-            else env.Other[key] = safeVal;
+            if (IsBuildRelevant(key))
+                env.BuildRelevant[key] = (LooksSecret(key) || LooksSecretValue(val)) ? "<redacted>" : val;
+            else
+                // Presence-only for the uncurated long tail: storing values of arbitrary
+                // env vars risks leaking secrets whose names lack a marker keyword, and
+                // Compare only diffs Other by key anyway.
+                env.Other[key] = null;
         }
         return env;
     }
@@ -81,12 +98,26 @@ public sealed class EnvironmentProvider : IEnvironmentProvider
         return SecretMarkers.Any(m => upper.Contains(m));
     }
 
+    // Defense-in-depth: redact a value that looks like a credential even if the key
+    // name was innocuous (embedded user:pass@, password=/pwd= assignments).
+    private static bool LooksSecretValue(string? val)
+    {
+        if (string.IsNullOrEmpty(val)) return false;
+        if (System.Text.RegularExpressions.Regex.IsMatch(val, @"://[^/@\s]+:[^/@\s]+@")) return true;
+        if (System.Text.RegularExpressions.Regex.IsMatch(val, @"(?i)\b(password|pwd|passwd)\s*=")) return true;
+        return false;
+    }
+
     public IEnumerable<Diff> Compare(JsonElement? a, JsonElement? b, CompareContext ctx)
     {
         var pa = Json.To<EnvPayload>(a) ?? new EnvPayload();
         var pb = Json.To<EnvPayload>(b) ?? new EnvPayload();
 
-        foreach (var d in DiffHelp.Dict(Id, "Build env var", pa.BuildRelevant, pb.BuildRelevant, ctx, Severity.High))
+        // High for vars whose value changes how code compiles/links; Low for the rest
+        // (mostly install paths, which are expected to differ between machines).
+        foreach (var d in DiffHelp.Dict(Id, "Build env var", Split(pa.BuildRelevant, true), Split(pb.BuildRelevant, true), ctx, Severity.High))
+            yield return d;
+        foreach (var d in DiffHelp.Dict(Id, "Build env var", Split(pa.BuildRelevant, false), Split(pb.BuildRelevant, false), ctx, Severity.Low))
             yield return d;
         foreach (var d in DiffHelp.Presence(Id, "Env var", pa.Other.Keys, pb.Other.Keys, ctx, Severity.Low))
             yield return d;
@@ -103,4 +134,8 @@ public sealed class EnvironmentProvider : IEnvironmentProvider
             yield return new Diff(Severity.Medium, "PATH",
                 $"{bOnly.Count} entries on {ctx.B} only: {string.Join("; ", bOnly.Take(3))}{(bOnly.Count > 3 ? " ..." : "")}", null, Id);
     }
+
+    private static Dictionary<string, string?> Split(Dictionary<string, string?> d, bool highImpact)
+        => d.Where(kv => HighImpactKeys.Contains(kv.Key) == highImpact)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
 }

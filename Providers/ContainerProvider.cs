@@ -42,8 +42,13 @@ public sealed class ContainerProvider : IEnvironmentProvider
                 p.DaemonReachable = !string.IsNullOrWhiteSpace(p.DockerServer);
             }
 
-            p.BuildxVersion = Extract(Proc.Run(docker, "buildx version", timeoutMs: 10_000)?.Combined, @"v?([0-9][0-9.]+)");
-            p.ComposeVersion = Extract(Proc.Run(docker, "compose version", timeoutMs: 10_000)?.Combined, @"v?([0-9][0-9.]+)");
+            // buildx/compose are plugins; only worth probing when the engine is up,
+            // and with a tight timeout so a dead daemon can't stack 20s onto capture.
+            if (p.DaemonReachable)
+            {
+                p.BuildxVersion = Extract(Proc.Run(docker, "buildx version", timeoutMs: 6_000)?.Combined, @"v?([0-9][0-9.]+)");
+                p.ComposeVersion = Extract(Proc.Run(docker, "compose version", timeoutMs: 6_000)?.Combined, @"v?([0-9][0-9.]+)");
+            }
         }
         if (podman is not null)
             p.PodmanVersion = Extract(Proc.Run(podman, "--version", timeoutMs: 10_000)?.Combined, @"version ([0-9][0-9.]*)");

@@ -39,7 +39,12 @@ public sealed class NuGetProvider : IEnvironmentProvider
                 var trimmed = line.Trim();
                 if (trimmed.Length < 3) continue;
                 var enabled = trimmed[0] != 'D';
-                var rest = trimmed[1..].Trim();
+                // Strip the leading status-flag run (E/D enabled/disabled, M machine-wide)
+                // rather than assuming a single char — otherwise a machine-wide source
+                // leaves a stray 'M' glued onto the URL.
+                int i = 0;
+                while (i < trimmed.Length && trimmed[i] is 'E' or 'D' or 'M') i++;
+                var rest = RedactCredentials(trimmed[i..].Trim());
                 info.Sources.Add(new NuGetSource { Name = "", Url = rest, Enabled = enabled });
             }
         }
@@ -56,7 +61,7 @@ public sealed class NuGetProvider : IEnvironmentProvider
                 if (match.Success) { curName = match.Groups["name"].Value.Trim(); continue; }
                 if (curName is not null && line.Trim().Length > 0)
                 {
-                    var url = line.Trim();
+                    var url = RedactCredentials(line.Trim());
                     if (idx < info.Sources.Count) info.Sources[idx].Name = curName;
                     else info.Sources.Add(new NuGetSource { Name = curName, Url = url });
                     idx++;
@@ -84,7 +89,7 @@ public sealed class NuGetProvider : IEnvironmentProvider
             Path.Combine(Environment.CurrentDirectory, "nuget.config"),
         })
             if (File.Exists(c)) info.Configs.Add(c);
-        info.Configs = info.Configs.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        info.Configs = info.Configs.Distinct(Os.PathComparer).ToList();
 
         if (info.Sources.Count == 0 && info.Configs.Count == 0 && info.GlobalPackages is null) return null;
         return info;
@@ -118,6 +123,11 @@ public sealed class NuGetProvider : IEnvironmentProvider
                     $"'{name}' enabled state differs: {ctx.A}={av.Enabled}, {ctx.B}={bv.Enabled}", null, Id);
         }
     }
+
+    // Feed URLs can embed credentials (https://user:PAT@feed/...). Never let those
+    // land in a snapshot that gets shared between machines.
+    private static string RedactCredentials(string url)
+        => Regex.Replace(url, @"://[^/@\s]+@", "://<redacted>@");
 
     private static Dictionary<string, NuGetSource> ByName(NuGetPayload p) => p.Sources
         .Where(s => !string.IsNullOrEmpty(s.Name))

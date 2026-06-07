@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace BuildDiff;
 
@@ -48,14 +50,24 @@ public static class Proc
 
             using var p = Process.Start(psi);
             if (p is null) return null;
-            var stdoutTask = p.StandardOutput.ReadToEndAsync();
-            var stderrTask = p.StandardError.ReadToEndAsync();
-            if (!p.WaitForExit(timeoutMs))
+
+            // Bound the whole operation — including the stdout/stderr reads — on one
+            // deadline. WaitForExit alone is not enough: if a grandchild inherits the
+            // output handle, ReadToEndAsync can block forever and .Result would hang
+            // past the timeout. Cancelling the reads guarantees we return.
+            using var cts = new CancellationTokenSource(timeoutMs);
+            var stdoutTask = p.StandardOutput.ReadToEndAsync(cts.Token);
+            var stderrTask = p.StandardError.ReadToEndAsync(cts.Token);
+            try
+            {
+                Task.WaitAll(p.WaitForExitAsync(cts.Token), stdoutTask, stderrTask);
+                return new Result(p.ExitCode, stdoutTask.Result, stderrTask.Result);
+            }
+            catch (Exception) when (cts.IsCancellationRequested)
             {
                 try { p.Kill(entireProcessTree: true); } catch { }
                 return null;
             }
-            return new Result(p.ExitCode, stdoutTask.Result, stderrTask.Result);
         }
         catch
         {
@@ -70,7 +82,7 @@ public static class Proc
     public static IReadOnlyList<string> WhichAll(string name)
     {
         var results = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seen = new HashSet<string>(Os.PathComparer);
 
         var dirs = (Environment.GetEnvironmentVariable("PATH") ?? "")
             .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries);
