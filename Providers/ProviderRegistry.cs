@@ -26,6 +26,9 @@ public static class ProviderRegistry
         new PythonProvider(),
         new SwigProvider(),
         new ContainerProvider(),
+        new AndroidProvider(),
+        new InfraIacProvider(),
+        new BazelProvider(),
 
         // ---- Always last: anything else on PATH ----
         new EnvironmentProvider(),

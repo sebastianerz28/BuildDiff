@@ -18,15 +18,14 @@ public sealed class GenericPayload
 public sealed class GenericToolchainProvider : IEnvironmentProvider
 {
     public string Id => "generic-toolchain";
-    public string DisplayName => "Other build tools on PATH (bazel, deno, terraform, …)";
+    public string DisplayName => "Other build tools on PATH (deno, sbt, ghc, dart, meson, …)";
     public bool AppliesTo(OsPlatform os) => true;
 
     // name, version-args, regex (group 1 = version). Tools already owned by a
     // dedicated provider are intentionally excluded to avoid double-reporting.
     private static readonly (string Name, string Args, string Pattern)[] Registry =
     {
-        ("bazel", "--version", @"bazel ([0-9][0-9.]*)"),
-        ("bazelisk", "version", @"([0-9][0-9.]+)"),
+        // bazel/bazelisk -> BazelProvider; terraform/pulumi/kubectl/helm/aws/gcloud/az -> InfraIacProvider.
         ("buck2", "--version", @"([0-9a-f.]+)"),
         ("meson", "--version", @"([0-9][0-9.]+)"),
         ("scons", "--version", @"v([0-9][0-9.]+)"),
@@ -49,15 +48,8 @@ public sealed class GenericToolchainProvider : IEnvironmentProvider
         ("pkg-config", "--version", @"([0-9][0-9.]+)"),
         ("autoconf", "--version", @"autoconf.*?([0-9][0-9.]+)"),
         ("nuget", "help", @"NuGet Version: ([0-9][0-9.]+)"),
-        ("terraform", "version", @"Terraform v([0-9][0-9.]+)"),
-        ("pulumi", "version", @"v?([0-9][0-9.]+)"),
         ("packer", "version", @"Packer v([0-9][0-9.]+)"),
         ("ansible", "--version", @"ansible \[?core ?([0-9][0-9.]+)"),
-        ("kubectl", "version --client", @"v([0-9][0-9.]+)"),
-        ("helm", "version --short", @"v([0-9][0-9.]+)"),
-        ("aws", "--version", @"aws-cli/([0-9][0-9.]+)"),
-        ("gcloud", "--version", @"Google Cloud SDK ([0-9][0-9.]+)"),
-        ("az", "version", @"azure-cli.*?([0-9][0-9.]+)"),
     };
 
     public object? Capture(CaptureContext ctx)
