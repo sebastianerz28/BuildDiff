@@ -10,8 +10,9 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>builddiff</ToolCommandName>
     <PackageId>BuildDiff</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Authors>Sebastian Ramirez</Authors>
+    <PackageReleaseNotes>0.3.0: --project lockfile drift (sha256-hashed, never contents); machine-vs-declared version checks; first-class Android SDK, Terraform/IaC, and Bazel providers; snapshot envelope + content fingerprint (builddiff fingerprint); cross-platform CI matrix.</PackageReleaseNotes>
     <Description>Why does it build here but not there? Captures build-relevant environment state and diffs two machines, ranked by what is most likely to break a build. Cross-platform (Windows/macOS/Linux), multi-environment: .NET/MSVC, Node.js, Swift/Xcode, CMake/C++, Go, Rust, JVM, Ruby, PHP, Python, containers, and more.</Description>
     <PackageTags>build;diagnostics;cli;dotnet-tool;environment;ci;node;swift;cmake;go;rust;java;msbuild;cross-platform</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
