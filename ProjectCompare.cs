@@ -27,6 +27,8 @@ public static class ProjectCompare
     {
         foreach (var d in MachineVsDeclared(a, ctx.A)) yield return d;
         foreach (var d in MachineVsDeclared(b, ctx.B)) yield return d;
+        foreach (var d in AmbiguousLockfiles(a, ctx.A)) yield return d;
+        foreach (var d in AmbiguousLockfiles(b, ctx.B)) yield return d;
 
         if (a.Project is null || b.Project is null) yield break;
 
@@ -41,6 +43,54 @@ public static class ProjectCompare
                 yield return new Diff(Severity.Medium, "Project requirement",
                     $"declared {key} differs: {ctx.A}={av ?? "<none>"}, {ctx.B}={bv ?? "<none>"}",
                     "The two machines appear to be on different checkouts of this project.", "project");
+        }
+
+        foreach (var d in LockfileDrift(a.Project, b.Project, ctx)) yield return d;
+    }
+
+    private static readonly string[] NodePmLocks =
+        { "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb" };
+
+    private static IEnumerable<Diff> AmbiguousLockfiles(Snapshot s, string machine)
+    {
+        if (s.Project is null) yield break;
+        var competing = s.Project.Lockfiles
+            .Select(l => l.File)
+            .Where(f => NodePmLocks.Contains(f, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (competing.Count > 1)
+            yield return new Diff(Severity.Medium, "Lockfile",
+                $"{machine}: {competing.Count} competing Node lockfiles present ({string.Join(", ", competing)})",
+                "Multiple package-manager lockfiles make installs nondeterministic — keep one.", "project");
+    }
+
+    private static IEnumerable<Diff> LockfileDrift(ProjectInfo a, ProjectInfo b, CompareContext ctx)
+    {
+        var aByFile = a.Lockfiles.GroupBy(l => l.File, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var bByFile = b.Lockfiles.GroupBy(l => l.File, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        foreach (var file in aByFile.Keys.Union(bByFile.Keys, StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+        {
+            aByFile.TryGetValue(file, out var al);
+            bByFile.TryGetValue(file, out var bl);
+            if (al is not null && bl is null)
+                yield return new Diff(Severity.Medium, "Lockfile", $"{file} present on {ctx.A} only", null, "project");
+            else if (bl is not null && al is null)
+                yield return new Diff(Severity.Medium, "Lockfile", $"{file} present on {ctx.B} only", null, "project");
+            else if (al is not null && bl is not null)
+            {
+                if (!string.Equals(al.Marker, bl.Marker, StringComparison.OrdinalIgnoreCase) && al.Marker is not null && bl.Marker is not null)
+                    yield return new Diff(Severity.High, "Lockfile",
+                        $"{file} format differs: {ctx.A}={al.Marker}, {ctx.B}={bl.Marker}",
+                        "Different lockfile format/version resolves dependencies differently.", "project");
+                else if (!string.Equals(al.Hash, bl.Hash, StringComparison.OrdinalIgnoreCase))
+                    yield return new Diff(Severity.High, "Lockfile",
+                        $"{file} content differs between machines",
+                        "The two machines are locked to different dependency sets — a classic 'works here, not there'.", "project");
+            }
         }
     }
 

@@ -32,6 +32,17 @@ public sealed class ProjectInfo
 {
     public string Root { get; set; } = "";
     public List<ProjectManifest> Manifests { get; set; } = new();
+    public List<ProjectLockfile> Lockfiles { get; set; } = new();
+}
+
+public sealed class ProjectLockfile
+{
+    public string File { get; set; } = "";
+    public string Ecosystem { get; set; } = "";
+    /// <summary>sha256 (hex) of the file contents — never the contents themselves.</summary>
+    public string Hash { get; set; } = "";
+    /// <summary>Format marker if cheaply extractable (lockfileVersion, BUNDLED WITH, …).</summary>
+    public string? Marker { get; set; }
 }
 
 public sealed class ProjectManifest
