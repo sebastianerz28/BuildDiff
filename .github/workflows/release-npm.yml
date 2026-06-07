@@ -64,7 +64,10 @@ jobs:
       - name: Assemble platform package
         shell: bash
         run: |
-          if [ "${{ matrix.nodeos }}" = "win32" ]; then bin=out/builddiff.exe; else bin=out/builddiff; fi
+          # .NET names the output after the project (BuildDiff/BuildDiff.exe). Linux is
+          # case-sensitive, so reference the exact name; the script renames it to
+          # lowercase `builddiff` in the package.
+          if [ "${{ matrix.nodeos }}" = "win32" ]; then bin=out/BuildDiff.exe; else bin=out/BuildDiff; fi
           node npm/scripts/platform-package.js "${{ needs.version.outputs.version }}" "${{ matrix.nodeos }}" "${{ matrix.nodecpu }}" "$bin" dist
 
       - uses: actions/upload-artifact@v4
