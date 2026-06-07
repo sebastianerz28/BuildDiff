@@ -75,6 +75,8 @@ jobs:
   publish:
     needs: [ version, build ]
     runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,6 +93,7 @@ jobs:
         run: node npm/scripts/set-wrapper-version.js "${{ needs.version.outputs.version }}"
 
       - name: Publish platform packages
+        if: env.NPM_TOKEN != ''
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -100,8 +103,13 @@ jobs:
           done
 
       - name: Publish wrapper
+        if: env.NPM_TOKEN != ''
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           cp README.md npm/README.md
           cd npm && npm publish --access public
+
+      - name: No NPM_TOKEN — build-only validation run
+        if: env.NPM_TOKEN == ''
+        run: echo "NPM_TOKEN not set; skipped publish. The 6-platform AOT build above validated the binaries."
