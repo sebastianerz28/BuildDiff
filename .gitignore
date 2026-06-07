@@ -1,6 +1,9 @@
 ## .NET
 bin/
 obj/
+# …but the npm launcher shim lives in npm/bin/ and MUST be tracked
+!npm/bin/
+!npm/bin/**
 *.user
 *.suo
 .vs/
