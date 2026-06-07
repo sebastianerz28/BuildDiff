@@ -5,6 +5,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Verify Native-AOT safety on every build; the npm distribution ships AOT binaries. -->
+    <IsAotCompatible>true</IsAotCompatible>
 
     <!-- Pack as a .NET global tool: `dotnet tool install -g BuildDiff` -->
     <PackAsTool>true</PackAsTool>

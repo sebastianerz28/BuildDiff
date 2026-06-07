@@ -42,7 +42,7 @@ internal static class Cli
         var snap = Capture.Collect(new CaptureOptions { ProjectRoot = project, Only = only });
 
         outPath ??= $"builddiff-{Sanitize(snap.Machine)}.json";
-        File.WriteAllText(outPath, JsonSerializer.Serialize(snap, Json.Options));
+        File.WriteAllText(outPath, JsonSerializer.Serialize(snap, AppJsonContext.Default.Snapshot));
 
         AnsiConsole.MarkupLine(
             $"[green]Wrote[/] [bold]{Markup.Escape(outPath)}[/] " +

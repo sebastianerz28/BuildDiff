@@ -76,7 +76,7 @@ public class UpgraderTests
     {
         var original = new Snapshot { Machine = "v2box", Os = new OsInfo { Platform = "linux", Arch = "Arm64" } };
         original.Providers["go"] = Json.ToElement(new GoPayload { Version = "1.22.3" });
-        var json = System.Text.Json.JsonSerializer.Serialize(original, Json.Options);
+        var json = System.Text.Json.JsonSerializer.Serialize(original, AppJsonContext.Default.Snapshot);
 
         var loaded = SnapshotUpgrader.Load(json);
         Assert.Equal(2, loaded.SchemaVersion);

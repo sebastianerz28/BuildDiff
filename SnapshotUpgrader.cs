@@ -26,7 +26,7 @@ public static class SnapshotUpgrader
 
         // v2 snapshots carry a "providers" object; anything else is treated as v1.
         if (root.TryGetProperty("providers", out _))
-            return JsonSerializer.Deserialize<Snapshot>(json, Json.Options)!;
+            return JsonSerializer.Deserialize(json, AppJsonContext.Default.Snapshot)!;
 
         return UpgradeV1(root);
     }
@@ -48,20 +48,20 @@ public static class SnapshotUpgrader
         };
 
         // visual-studio: rebuild the v1 sections into the v2 VsPayload. v1 wrote install
-        // metadata in camelCase, so read case-insensitively into the POCO; it then
-        // re-serializes through Json.Options (snake_case) like every other payload.
+        // metadata in camelCase, so parse it by hand (AOT-safe, no reflection); the
+        // VsPayload then re-serializes through the source-gen context (snake_case).
         VsPayload? vs = null;
-        if (TryGet(root, "visual_studio", out var vsEl))
+        if (TryGet(root, "visual_studio", out var vsEl) && vsEl.ValueKind == JsonValueKind.Array)
         {
             vs = new VsPayload();
-            try { vs.Installs = vsEl.Deserialize<List<VsInstall>>(CaseInsensitive) ?? new(); } catch { }
+            foreach (var instEl in vsEl.EnumerateArray()) vs.Installs.Add(ParseV1Install(instEl));
         }
         if (TryGet(root, "toolsets", out var tsEl)) { vs ??= new(); vs.Toolsets = Strs(tsEl); }
         if (TryGet(root, "windows_sdks", out var sdkEl)) { vs ??= new(); vs.WindowsSdks = Strs(sdkEl); }
         if (TryGet(root, "ms_build", out var mbEl) || TryGet(root, "msbuild", out mbEl))
         {
             vs ??= new();
-            try { vs.MsBuild = mbEl.Deserialize<MsBuildInfo>(CaseInsensitive); } catch { }
+            vs.MsBuild = new MsBuildInfo { Version = Str(mbEl, "version"), Path = Str(mbEl, "path") };
         }
         if (vs is not null) snap.Providers["visual-studio"] = Json.ToElement(vs);
 
@@ -90,10 +90,22 @@ public static class SnapshotUpgrader
     private static void Put(Snapshot snap, string providerId, JsonNode? node)
     {
         if (node is null) return;
-        snap.Providers[providerId] = JsonSerializer.SerializeToElement(node, Json.Options);
+        // JsonNode -> JsonElement without reflection (AOT-safe).
+        using var doc = JsonDocument.Parse(node.ToJsonString());
+        snap.Providers[providerId] = doc.RootElement.Clone();
     }
 
-    private static readonly JsonSerializerOptions CaseInsensitive = new() { PropertyNameCaseInsensitive = true };
+    private static VsInstall ParseV1Install(JsonElement e) => new()
+    {
+        DisplayName = Str(e, "displayName"),
+        InstallationVersion = Str(e, "installationVersion"),
+        InstallationPath = Str(e, "installationPath"),
+        ProductId = Str(e, "productId"),
+        ChannelId = Str(e, "channelId"),
+        Components = e.TryGetProperty("components", out var c) && c.ValueKind == JsonValueKind.Array
+            ? c.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList()
+            : new(),
+    };
 
     private static List<string> Strs(JsonElement el)
     {
