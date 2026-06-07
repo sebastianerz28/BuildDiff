@@ -10,6 +10,10 @@ obj/
 *.pdb
 *.exe
 
+## Packaging
+nupkg/
+*.nupkg
+
 ## Local snapshots (often machine-specific, easy to regen)
 builddiff-*.json
 snap-*.json
