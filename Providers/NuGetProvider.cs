@@ -125,8 +125,8 @@ public sealed class NuGetProvider : IEnvironmentProvider
     }
 
     // Feed URLs can embed credentials (https://user:PAT@feed/...). Never let those
-    // land in a snapshot that gets shared between machines.
-    private static string RedactCredentials(string url)
+    // land in a snapshot that gets shared between machines. (internal for testing)
+    internal static string RedactCredentials(string url)
         => Regex.Replace(url, @"://[^/@\s]+@", "://<redacted>@");
 
     private static Dictionary<string, NuGetSource> ByName(NuGetPayload p) => p.Sources

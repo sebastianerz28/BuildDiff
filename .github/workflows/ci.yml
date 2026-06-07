@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: build & test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build (Release)
+        run: dotnet build -c Release --no-restore
+
+      - name: Test
+        run: dotnet test -c Release --no-build --verbosity normal
+
+      # Actually run the tool on each OS — this is what exercises the macOS/Linux
+      # providers (Swift/Xcode, JVM, gcc/clang, etc.) at runtime, not just compile time.
+      - name: Smoke test
+        shell: bash
+        run: |
+          run() { dotnet run -c Release --no-build --project BuildDiff.csproj -- "$@"; }
+          run providers
+          run capture -o snap-a.json
+          run capture -o snap-b.json
+          run compare snap-a.json snap-b.json
+          run compare snap-a.json snap-b.json --verbose

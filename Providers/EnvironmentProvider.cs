@@ -100,7 +100,8 @@ public sealed class EnvironmentProvider : IEnvironmentProvider
 
     // Defense-in-depth: redact a value that looks like a credential even if the key
     // name was innocuous (embedded user:pass@, password=/pwd= assignments).
-    private static bool LooksSecretValue(string? val)
+    // (internal for testing)
+    internal static bool LooksSecretValue(string? val)
     {
         if (string.IsNullOrEmpty(val)) return false;
         if (System.Text.RegularExpressions.Regex.IsMatch(val, @"://[^/@\s]+:[^/@\s]+@")) return true;
