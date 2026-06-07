@@ -1,14 +1,33 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- Pack as a .NET global tool: `dotnet tool install -g BuildDiff` -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>builddiff</ToolCommandName>
+    <PackageId>BuildDiff</PackageId>
+    <Version>0.2.0</Version>
+    <Authors>Sebastian Ramirez</Authors>
+    <Description>Why does it build here but not there? Captures build-relevant environment state and diffs two machines, ranked by what is most likely to break a build. Cross-platform (Windows/macOS/Linux), multi-environment: .NET/MSVC, Node.js, Swift/Xcode, CMake/C++, Go, Rust, JVM, Ruby, PHP, Python, containers, and more.</Description>
+    <PackageTags>build;diagnostics;cli;dotnet-tool;environment;ci;node;swift;cmake;go;rust;java;msbuild;cross-platform</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/sebastianerz28/BuildDiff</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/sebastianerz28/BuildDiff</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.55.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>

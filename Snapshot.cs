@@ -1,110 +1,43 @@
-using System.Text.Json.Serialization;
+using System.Text.Json;
 
 namespace BuildDiff;
 
+/// <summary>
+/// Schema v2: a slim core plus an open map of provider-owned payloads.
+/// Adding an ecosystem never changes this type — it just adds a key under
+/// <see cref="Providers"/>. Old snapshots upgrade in via <see cref="SnapshotUpgrader"/>.
+/// </summary>
 public sealed class Snapshot
 {
     public string Machine { get; set; } = "";
     public string CapturedAt { get; set; } = "";
-    public string SchemaVersion { get; set; } = "1";
+    public int SchemaVersion { get; set; } = 2;
     public OsInfo Os { get; set; } = new();
-    public MsBuildInfo? MsBuild { get; set; }
-    public List<VisualStudioInstall> VisualStudio { get; set; } = new();
-    public List<string> Toolsets { get; set; } = new();
-    public List<string> WindowsSdks { get; set; } = new();
-    public DotnetInfo Dotnet { get; set; } = new();
-    public EnvInfo Env { get; set; } = new();
-    [JsonPropertyName("nuget")] public NuGetInfo NuGet { get; set; } = new();
-    public Dictionary<string, ResolvedTool?> ResolvedTools { get; set; } = new();
-    public List<PythonEnv> Python { get; set; } = new();
-    public SwigInfo? Swig { get; set; }
-    public List<NativeDep> NativeDeps { get; set; } = new();
-}
 
-public sealed class PythonEnv
-{
-    public string? Path { get; set; }
-    public string? Version { get; set; }
-    public string? Prefix { get; set; }
-    public string? BasePrefix { get; set; }
-    public bool InVirtualEnv { get; set; }
-    public string? Architecture { get; set; }
-    public List<PyPackage> Packages { get; set; } = new();
-    public bool PackagesTruncated { get; set; }
-}
+    /// <summary>Populated only when captured with <c>--project</c>.</summary>
+    public ProjectInfo? Project { get; set; }
 
-public sealed class PyPackage
-{
-    public string Name { get; set; } = "";
-    public string Version { get; set; } = "";
-}
-
-public sealed class SwigInfo
-{
-    public string? Path { get; set; }
-    public string? Version { get; set; }
-    public bool OnPath { get; set; }
-}
-
-public sealed class NativeDep
-{
-    public string Name { get; set; } = "";
-    public string Path { get; set; } = "";
-    public string? FileVersion { get; set; }
-    public string? Architecture { get; set; }
-}
-
-public sealed class EnvInfo
-{
-    public List<string> Path { get; set; } = new();
-    public Dictionary<string, string?> BuildRelevant { get; set; } = new();
-    public Dictionary<string, string?> Other { get; set; } = new();
-}
-
-public sealed class NuGetInfo
-{
-    public List<NuGetSource> Sources { get; set; } = new();
-    public string? GlobalPackages { get; set; }
-    public List<string> Configs { get; set; } = new();
-}
-
-public sealed class NuGetSource
-{
-    public string Name { get; set; } = "";
-    public string Url { get; set; } = "";
-    public bool Enabled { get; set; } = true;
-}
-
-public sealed class ResolvedTool
-{
-    public string? Path { get; set; }
-    public string? Version { get; set; }
+    /// <summary>providerId → that provider's serialized payload.</summary>
+    public Dictionary<string, JsonElement> Providers { get; set; } = new();
 }
 
 public sealed class OsInfo
 {
+    public string Platform { get; set; } = "";   // windows | macos | linux
     public string Version { get; set; } = "";
     public string Arch { get; set; } = "";
 }
 
-public sealed class MsBuildInfo
+public sealed class ProjectInfo
 {
-    public string? Version { get; set; }
-    public string? Path { get; set; }
+    public string Root { get; set; } = "";
+    public List<ProjectManifest> Manifests { get; set; } = new();
 }
 
-public sealed class VisualStudioInstall
+public sealed class ProjectManifest
 {
-    [JsonPropertyName("displayName")] public string? DisplayName { get; set; }
-    [JsonPropertyName("installationVersion")] public string? InstallationVersion { get; set; }
-    [JsonPropertyName("installationPath")] public string? InstallationPath { get; set; }
-    [JsonPropertyName("productId")] public string? ProductId { get; set; }
-    [JsonPropertyName("channelId")] public string? ChannelId { get; set; }
-    public List<string> Components { get; set; } = new();
-}
-
-public sealed class DotnetInfo
-{
-    public List<string> Sdks { get; set; } = new();
-    public List<string> Runtimes { get; set; } = new();
+    public string File { get; set; } = "";
+    public string Kind { get; set; } = "";
+    /// <summary>Requirement key → declared value (e.g. "node" → "20.11.0").</summary>
+    public Dictionary<string, string?> Declares { get; set; } = new();
 }

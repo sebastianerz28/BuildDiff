@@ -6,12 +6,6 @@ return Cli.Run(args);
 
 internal static class Cli
 {
-    private static readonly JsonSerializerOptions JsonOpts = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-    };
-
     public static int Run(string[] args)
     {
         if (args.Length == 0) { PrintUsage(); return 1; }
@@ -20,6 +14,7 @@ internal static class Cli
         {
             "capture" => DoCapture(args.Skip(1).ToArray()),
             "compare" => DoCompare(args.Skip(1).ToArray()),
+            "providers" or "list" => DoProviders(),
             "-h" or "--help" or "help" => Help(),
             _ => Help(unknown: args[0]),
         };
@@ -28,20 +23,32 @@ internal static class Cli
     private static int DoCapture(string[] args)
     {
         string? outPath = null;
+        string? project = null;
+        HashSet<string>? only = null;
+
         for (int i = 0; i < args.Length; i++)
         {
-            if ((args[i] == "-o" || args[i] == "--out") && i + 1 < args.Length)
-            {
-                outPath = args[i + 1]; i++;
-            }
+            var a = args[i];
+            if ((a == "-o" || a == "--out") && i + 1 < args.Length) outPath = args[++i];
+            else if (a == "--project" && i + 1 < args.Length) project = Path.GetFullPath(args[++i]);
+            else if (a == "--only" && i + 1 < args.Length)
+                only = new HashSet<string>(
+                    args[++i].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+                    StringComparer.OrdinalIgnoreCase);
         }
 
         AnsiConsole.MarkupLine("[grey]Capturing build-relevant environment state...[/]");
-        var snap = Capture.Collect();
+        var snap = Capture.Collect(new CaptureOptions { ProjectRoot = project, Only = only });
+
         outPath ??= $"builddiff-{Sanitize(snap.Machine)}.json";
-        var json = JsonSerializer.Serialize(snap, JsonOpts);
-        File.WriteAllText(outPath, json);
-        AnsiConsole.MarkupLine($"[green]Wrote[/] [bold]{outPath}[/] ({new FileInfo(outPath).Length:N0} bytes)");
+        File.WriteAllText(outPath, JsonSerializer.Serialize(snap, Json.Options));
+
+        AnsiConsole.MarkupLine(
+            $"[green]Wrote[/] [bold]{Markup.Escape(outPath)}[/] " +
+            $"({new FileInfo(outPath).Length:N0} bytes) — " +
+            $"[cyan]{snap.Providers.Count}[/] provider section(s) on [cyan]{snap.Os.Platform}[/]");
+        if (snap.Project is not null)
+            AnsiConsole.MarkupLine($"[grey]  + project manifests: {snap.Project.Manifests.Count} found under {Markup.Escape(snap.Project.Root)}[/]");
         return 0;
     }
 
@@ -56,7 +63,7 @@ internal static class Cli
         }
         if (positional.Count != 2)
         {
-            AnsiConsole.MarkupLine("[red]usage: builddiff compare <A.json> <B.json> [--verbose][/]");
+            AnsiConsole.MarkupLine("[red]usage: builddiff compare <A.json> <B.json> [[--verbose]][/]");
             return 1;
         }
 
@@ -64,8 +71,22 @@ internal static class Cli
         var b = LoadSnapshot(positional[1]);
         if (a is null || b is null) return 1;
 
-        var diffs = Compare.Run(a, b);
+        var diffs = Compare.Run(a, b, verbose);
         Render(diffs, a, b, verbose);
+        return 0;
+    }
+
+    private static int DoProviders()
+    {
+        var os = Os.Current;
+        AnsiConsole.MarkupLine($"[bold]BuildDiff providers[/]  (this machine: [cyan]{Os.Name(os)}[/])\n");
+        foreach (var p in ProviderRegistry.All)
+        {
+            var applies = p.AppliesTo(os);
+            var dot = applies ? "[green]●[/]" : "[grey]○[/]";
+            AnsiConsole.MarkupLine($"  {dot} [bold]{Markup.Escape(p.Id)}[/]  [grey]— {Markup.Escape(p.DisplayName)}[/]");
+        }
+        AnsiConsole.MarkupLine("\n  [grey]● active on this OS    ○ inactive here[/]");
         return 0;
     }
 
@@ -73,8 +94,7 @@ internal static class Cli
     {
         try
         {
-            var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<Snapshot>(json, JsonOpts);
+            return SnapshotUpgrader.Load(File.ReadAllText(path));
         }
         catch (Exception ex)
         {
@@ -145,7 +165,8 @@ internal static class Cli
     private static void PrintUsage()
     {
         AnsiConsole.MarkupLine("[bold]builddiff[/] — why does it build here but not there?\n");
-        AnsiConsole.MarkupLine("  [bold]capture[/]  [grey][[-o file.json]][/]        capture this machine's build-relevant state");
-        AnsiConsole.MarkupLine("  [bold]compare[/]  A.json B.json [grey][[--verbose]][/]  diff two snapshots, ranked by likelihood of breaking the build");
+        AnsiConsole.MarkupLine("  [bold]capture[/]  [grey][[-o file.json]] [[--project DIR]] [[--only id,id]][/]   capture this machine's build-relevant state");
+        AnsiConsole.MarkupLine("  [bold]compare[/]  A.json B.json [grey][[--verbose]][/]                  diff two snapshots, ranked by likelihood of breaking the build");
+        AnsiConsole.MarkupLine("  [bold]providers[/]                                          list every ecosystem BuildDiff can detect");
     }
 }
