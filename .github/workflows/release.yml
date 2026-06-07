@@ -11,6 +11,10 @@ on:
     tags:
       - 'v*'
 
+# actions/* JS actions force-move to Node 24 on 2026-06-16; opt in now.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   pack-and-publish:
     runs-on: windows-latest

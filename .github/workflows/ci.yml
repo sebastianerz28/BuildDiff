@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# actions/* JS actions force-move to Node 24 on 2026-06-16; opt in now so CI
+# doesn't break (and to silence the deprecation annotation).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-test:
     name: build & test (${{ matrix.os }})
