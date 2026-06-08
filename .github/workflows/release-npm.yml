@@ -43,7 +43,9 @@ jobs:
         include:
           - { runner: ubuntu-latest,    rid: linux-x64,   nodeos: linux,  nodecpu: x64 }
           - { runner: ubuntu-24.04-arm, rid: linux-arm64, nodeos: linux,  nodecpu: arm64 }
-          - { runner: macos-13,         rid: osx-x64,     nodeos: darwin, nodecpu: x64 }
+          # osx-x64 cross-compiles on the arm64 mac runner (Apple clang targets both
+          # arches), avoiding the retired Intel macos-13 runner.
+          - { runner: macos-latest,     rid: osx-x64,     nodeos: darwin, nodecpu: x64 }
           - { runner: macos-latest,     rid: osx-arm64,   nodeos: darwin, nodecpu: arm64 }
           - { runner: windows-latest,   rid: win-x64,     nodeos: win32,  nodecpu: x64 }
           - { runner: windows-11-arm,   rid: win-arm64,   nodeos: win32,  nodecpu: arm64 }
