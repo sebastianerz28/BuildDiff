@@ -45,7 +45,7 @@ public static class ProjectScan
         ("yarn.lock", "node", t => t.Contains("__metadata:") ? "berry" : "v1"),
         ("bun.lockb", "node", _ => "binary"),
         ("bun.lock", "node", null),
-        ("Cargo.lock", "rust", t => TomlTop(t, "version")),
+        ("Cargo.lock", "rust", CargoLockVersion),
         ("go.sum", "go", null),
         ("Gemfile.lock", "ruby", t => Match(t, @"BUNDLED WITH\s*\n\s*([0-9][0-9.]*)")),
         ("composer.lock", "php", t => JsonField(t, "content-hash")),
@@ -113,6 +113,15 @@ public static class ProjectScan
 
     private static string? TomlTop(string text, string key)
         => Match(text, $@"(?m)^{Regex.Escape(key)}\s*=\s*""?([^""\r\n]+?)""?\s*$");
+
+    // Cargo.lock's format version is an integer `version = N` in the header (before the
+    // first [[package]]). Anchor there so we don't grab a package's version = "x.y.z".
+    private static string? CargoLockVersion(string text)
+    {
+        var head = text.Split("[[package]]", 2)[0];
+        var m = Regex.Match(head, @"(?m)^\s*version\s*=\s*(\d+)\s*$");
+        return m.Success ? m.Groups[1].Value : null;
+    }
 
     private static string? Match(string text, string pattern)
     {

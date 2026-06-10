@@ -183,15 +183,13 @@ public sealed class AndroidProvider : IEnvironmentProvider
 
     private static (string? root, string source) ResolveSdkRoot(CaptureContext ctx, string? androidHome, string? androidSdkRoot)
     {
-        var candidates = new List<(string? path, string source)>
-        {
-            (NullIfEmpty(androidHome), "env:ANDROID_HOME"),
-            (NullIfEmpty(androidSdkRoot), "env:ANDROID_SDK_ROOT"),
-        };
-
+        // Match AGP precedence: a project's local.properties `sdk.dir` wins over the
+        // environment variables (that is the SDK the build actually uses).
+        var candidates = new List<(string? path, string source)>();
         if (ctx.ProjectRoot is not null)
             candidates.Add((ReadLocalPropertiesSdkDir(ctx.ProjectRoot), "local.properties"));
-
+        candidates.Add((NullIfEmpty(androidHome), "env:ANDROID_HOME"));
+        candidates.Add((NullIfEmpty(androidSdkRoot), "env:ANDROID_SDK_ROOT"));
         candidates.Add((OsDefaultSdk(), "default"));
 
         foreach (var (path, source) in candidates)

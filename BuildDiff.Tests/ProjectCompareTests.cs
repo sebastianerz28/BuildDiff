@@ -71,4 +71,29 @@ public class ProjectCompareTests
         Assert.Contains(diffs, d => d.Category == "Project requirement"
             && d.Message.Contains("python 3.14.3 does not satisfy declared 3.11"));
     }
+
+    [Fact]
+    public void Java_8_pin_is_satisfied_by_the_legacy_1_8_scheme()
+    {
+        var a = WithProject("m1", ".java-version", "java", "8");
+        a.Providers["jvm"] = Json.ToElement(new JvmPayload { JavaVersion = "1.8.0_452" });
+        var b = new Snapshot { Machine = "m2", Os = new OsInfo { Platform = "linux", Arch = "X64", Version = "v" } };
+
+        var diffs = Compare.Run(a, b);
+        Assert.DoesNotContain(diffs, d => d.Category == "Project requirement"); // "8" matches 1.8.0_452
+    }
+
+    [Fact]
+    public void Pin_is_satisfied_when_any_installed_interpreter_matches()
+    {
+        var a = WithProject("m1", ".python-version", "python", "3.11");
+        a.Providers["python"] = Json.ToElement(new PythonPayload
+        {
+            Envs = { new PythonEnv { Version = "3.12.0" }, new PythonEnv { Version = "3.11.5" } },
+        });
+        var b = new Snapshot { Machine = "m2", Os = new OsInfo { Platform = "linux", Arch = "X64", Version = "v" } };
+
+        var diffs = Compare.Run(a, b);
+        Assert.DoesNotContain(diffs, d => d.Category == "Project requirement"); // 3.11 present as a non-first env
+    }
 }

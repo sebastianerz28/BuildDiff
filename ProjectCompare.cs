@@ -49,7 +49,7 @@ public static class ProjectCompare
     }
 
     private static readonly string[] NodePmLocks =
-        { "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb" };
+        { "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock" };
 
     private static IEnumerable<Diff> AmbiguousLockfiles(Snapshot s, string machine)
     {
@@ -106,28 +106,39 @@ public static class ProjectCompare
                 if (tool.ProviderId is null) continue;          // not a tool we can resolve
                 if (!IsConcreteVersion(declared)) continue;     // skip ranges / aliases (>=22, lts/iron)
 
-                var captured = CapturedVersion(s, tool.ProviderId, key);
-                if (captured is null)
+                var captured = CapturedVersions(s, tool.ProviderId, key);
+                if (captured.Count == 0)
+                {
                     yield return new Diff(Severity.High, "Project requirement",
                         $"{machine}: {key} is declared ({declared} in {m.File}) but no {key} was detected", null, "project");
-                else if (!SatisfiesPinPrecision(declared, captured))
+                    continue;
+                }
+
+                // Drift only if NO installed version satisfies the pin — a repo may have
+                // several interpreters/JDKs installed, and the active-first one need not be
+                // the pinned one. Java's legacy "1.8.0_x" scheme is normalized so "8" matches.
+                bool isJava = key.Equals("java", StringComparison.OrdinalIgnoreCase);
+                var pin = isJava ? NormalizeJava(declared) : declared;
+                bool satisfied = captured.Any(c => SatisfiesPinPrecision(pin, isJava ? NormalizeJava(c) : c));
+                if (!satisfied)
                     yield return new Diff(Severity.Medium, "Project requirement",
-                        $"{machine}: {key} {captured} does not satisfy declared {declared} ({m.File})",
+                        $"{machine}: {key} {captured[0]} does not satisfy declared {declared} ({m.File})",
                         $"Switch {key} to {declared} (e.g. via your version manager).", "project");
             }
     }
 
-    private static string? CapturedVersion(Snapshot s, string providerId, string key)
+    private static List<string> CapturedVersions(Snapshot s, string providerId, string key)
     {
-        if (!s.Providers.TryGetValue(providerId, out var el)) return null;
+        if (!s.Providers.TryGetValue(providerId, out var el)) return new();
         try
         {
             if (key.Equals("python", StringComparison.OrdinalIgnoreCase))
             {
+                var list = new List<string>();
                 if (el.TryGetProperty("envs", out var envs) && envs.ValueKind == JsonValueKind.Array)
                     foreach (var e in envs.EnumerateArray())
-                        if (e.TryGetProperty("version", out var v)) return v.GetString();
-                return null;
+                        if (e.TryGetProperty("version", out var v) && v.GetString() is { } ver) list.Add(ver);
+                return list;
             }
             var field = key.ToLowerInvariant() switch
             {
@@ -135,10 +146,13 @@ public static class ProjectCompare
                 "java" => "java_version",
                 _ => "version",
             };
-            return el.TryGetProperty(field, out var f) ? f.GetString() : null;
+            return el.TryGetProperty(field, out var f) && f.GetString() is { } val ? new() { val } : new();
         }
-        catch { return null; }
+        catch { return new(); }
     }
+
+    // Collapse the legacy Java "1.8.0_x" scheme so a pin of "8" matches.
+    private static string NormalizeJava(string v) => v.StartsWith("1.") ? v[2..] : v;
 
     // Compare only as precisely as the pin specifies: pin "20" checks the major,
     // "3.11" checks major.minor, "20.11.0" checks all three.

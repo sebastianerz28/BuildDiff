@@ -570,8 +570,9 @@ public sealed class InfraIacProvider : IEnvironmentProvider
         int cmp = CompareVersion(ver, operand);
         switch (op)
         {
-            case "=": return MatchesAtPrecision(string.Join('.', ver), operandRaw);
-            case "!=": return !MatchesAtPrecision(string.Join('.', ver), operandRaw);
+            // Terraform pads `= 1.5` to exactly 1.5.0 and requires exact equality.
+            case "=": return cmp == 0;
+            case "!=": return cmp != 0;
             case ">": return cmp > 0;
             case ">=": return cmp >= 0;
             case "<": return cmp < 0;

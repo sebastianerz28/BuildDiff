@@ -26,10 +26,14 @@ public static class Fingerprinter
 
     public static Fingerprint Compute(Snapshot s)
     {
+        // Defensive: System.Text.Json can overwrite the non-null initializers with null
+        // when the JSON has explicit "os": null / "providers": null.
+        var os = (OsInfo?)s.Os ?? new OsInfo();
+        var providers = (Dictionary<string, JsonElement>?)s.Providers ?? new();
         var input = new JsonObject
         {
-            ["os"] = new JsonObject { ["platform"] = s.Os.Platform, ["arch"] = s.Os.Arch },
-            ["providers"] = ProvidersNode(s.Providers),
+            ["os"] = new JsonObject { ["platform"] = os.Platform, ["arch"] = os.Arch },
+            ["providers"] = ProvidersNode(providers),
         };
 
         var canonical = Canon(input)!.ToJsonString(Compact);
