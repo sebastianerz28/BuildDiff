@@ -1,4 +1,5 @@
 <Solution>
   <Project Path="BuildDiff.csproj" />
+  <Project Path="BuildDiff.Core/BuildDiff.Core.csproj" />
   <Project Path="BuildDiff.Tests/BuildDiff.Tests.csproj" />
 </Solution>

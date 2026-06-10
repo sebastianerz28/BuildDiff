@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- The CLI ships Native-AOT binaries; the library must stay AOT-safe. -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <AssemblyName>BuildDiff.Core</AssemblyName>
+    <RootNamespace>BuildDiff</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="BuildDiff.Tests" />
+  </ItemGroup>
+
+</Project>

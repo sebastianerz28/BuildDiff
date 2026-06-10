@@ -15,7 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BuildDiff.csproj" />
+    <ProjectReference Include="..\BuildDiff.Core\BuildDiff.Core.csproj" />
   </ItemGroup>
 
 </Project>

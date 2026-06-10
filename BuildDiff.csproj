@@ -30,13 +30,17 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="BuildDiff.Core/BuildDiff.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The test project lives in a subfolder; keep its sources out of this project's glob. -->
+    <!-- Subprojects live in subfolders; keep their sources out of this project's glob. -->
+    <Compile Remove="BuildDiff.Core/**/*.cs" />
     <Compile Remove="BuildDiff.Tests/**/*.cs" />
-    <InternalsVisibleTo Include="BuildDiff.Tests" />
   </ItemGroup>
 
 </Project>
